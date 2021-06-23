@@ -1,0 +1,7 @@
+name = "storage-workers"
+type = "webpack"
+
+account_id = "fab68c77d8655d69dcdd2d0eefd55a8a"
+workers_dev = true
+route = ""
+zone_id = ""
