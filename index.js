@@ -1,29 +1,7 @@
 import { Router } from 'itty-router'
-import Ceramic from '@ceramicnetwork/http-client'
-import { IDX } from '@ceramicstudio/idx'
 
 const router = Router()
 const ceramicApiEndpoint = 'https://gateway.ceramic.network'
-
-/*
-Get the latest pinset CID for a did
-*/
-router.get('/pinset/:did', async ({ params }) => {
-    // Fetch Estuary deals
-    const response = await fetch('https://api.estuary.tech/content/list', {
-        method: 'GET',
-        headers: {
-            Authorization: `Bearer ${ESTUARY_API_KEY}`,
-        },
-    })
-    const list = await response.json()
-
-    return new Response(JSON.stringify(list), {
-        headers: {
-            'Content-Type': 'application/json',
-        },
-    })
-})
 
 /*
 Trigger a pinset update for a did
@@ -63,6 +41,8 @@ router.post('/pinset/:did/request', async request => {
     }
     const rootCID = stream.state.content.root.replace('ipfs://', '')
 
+    // TODO: Check if already pinned
+
     // Pin rootCID to Estuary
     const pinResponse = await fetch(
         'https://api.estuary.tech/content/add-ipfs',
@@ -87,6 +67,8 @@ router.post('/pinset/:did/request', async request => {
             }
         )
     }
+
+    // TODO: Cache CID
 
     return new Response(JSON.stringify({ success: true }), {
         headers: {
