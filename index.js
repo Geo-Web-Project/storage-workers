@@ -1,68 +1,91 @@
 import { Router } from 'itty-router'
 
-// Create a new router
 const router = Router()
+const ceramicApiEndpoint = 'https://gateway.ceramic.network'
 
 /*
-Our index route, a simple hello world.
+Trigger a pinset update for a did
 */
-router.get("/", () => {
-  return new Response("Hello, world! This is the root page of your Worker template.")
-})
-
-/*
-This route demonstrates path parameters, allowing you to extract fragments from the request
-URL.
-
-Try visit /example/hello and see the response.
-*/
-router.get("/example/:text", ({ params }) => {
-  // Decode text like "Hello%20world" into "Hello world"
-  let input = decodeURIComponent(params.text)
-
-  // Construct a buffer from our input
-  let buffer = Buffer.from(input, "utf8")
-
-  // Serialise the buffer into a base64 string
-  let base64 = buffer.toString("base64")
-
-  // Return the HTML with the string to the client
-  return new Response(`<p>Base64 encoding: <code>${base64}</code></p>`, {
-    headers: {
-      "Content-Type": "text/html"
+router.post('/pinset/:did/request', async request => {
+    const body = await request.json()
+    if (!body.pinSetRecordID) {
+        return new Response(
+            JSON.stringify({ error: "Could not find field 'pinSetRecordID'" }),
+            { status: 400 }
+        )
     }
-  })
-})
 
-/*
-This shows a different HTTP method, a POST.
-
-Try send a POST request using curl or another tool.
-
-Try the below curl command to send JSON:
-
-$ curl -X POST <worker> -H "Content-Type: application/json" -d '{"abc": "def"}'
-*/
-router.post("/post", async request => {
-  // Create a base object with some fields.
-  let fields = {
-    "asn": request.cf.asn,
-    "colo": request.cf.colo
-  }
-
-  // If the POST data is JSON then attach it to our response.
-  if (request.headers.get("Content-Type") === "application/json") {
-    fields["json"] = await request.json()
-  }
-
-  // Serialise the JSON to a string.
-  const returnData = JSON.stringify(fields, null, 2);
-
-  return new Response(returnData, {
-    headers: {
-      "Content-Type": "application/json"
+    // Fetch latest pinset
+    const response = await fetch(
+        `${ceramicApiEndpoint}/api/v0/streams/${body.pinSetRecordID}`
+    )
+    const stream = await response.json()
+    if (!stream || !stream.state || !stream.state.metadata) {
+        return new Response(JSON.stringify({ error: 'Malformed response' }), {
+            status: 500,
+        })
     }
-  })
+
+    if (!stream.state.metadata.controllers.includes(request.params.did)) {
+        return new Response(
+            JSON.stringify({ error: 'Record not controlled by DID' }),
+            {
+                status: 400,
+            }
+        )
+    }
+    if (!stream.state.content || !stream.state.content.root) {
+        return new Response(JSON.stringify({ error: 'Bad record found' }), {
+            status: 400,
+        })
+    }
+    const rootCID = stream.state.content.root.replace('ipfs://', '')
+
+    // Check if already pinned
+    const existingPin = await PINS.get(rootCID)
+    if (existingPin) {
+        return new Response(JSON.stringify({ success: true }), {
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            status: 200,
+        })
+    }
+
+    // Pin rootCID to Estuary
+    const pinResponse = await fetch(
+        'https://api.estuary.tech/content/add-ipfs',
+        {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${ESTUARY_API_KEY}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                name: rootCID,
+                root: rootCID,
+            }),
+        }
+    )
+    const result = await pinResponse.json()
+    if (!result.content || !result.content.active) {
+        return new Response(
+            JSON.stringify({ error: 'Malformed pin response' }),
+            {
+                status: 500,
+            }
+        )
+    }
+
+    // Cache CID
+    await PINS.put(rootCID, result.content.id)
+
+    return new Response(JSON.stringify({ success: true }), {
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        status: 201,
+    })
 })
 
 /*
@@ -71,12 +94,12 @@ above, therefore it's useful as a 404 (and avoids us hitting worker exceptions, 
 
 Visit any page that doesn't exist (e.g. /foobar) to see it in action.
 */
-router.all("*", () => new Response("404, not found!", { status: 404 }))
+router.all('*', () => new Response('404, not found!', { status: 404 }))
 
 /*
 This snippet ties our worker to the router we deifned above, all incoming requests
 are passed to the router where your routes are called and the response is sent.
 */
-addEventListener('fetch', (e) => {
-  e.respondWith(router.handle(e.request))
+addEventListener('fetch', e => {
+    e.respondWith(router.handle(e.request))
 })

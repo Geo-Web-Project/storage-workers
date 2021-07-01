@@ -5,3 +5,7 @@ account_id = "fab68c77d8655d69dcdd2d0eefd55a8a"
 workers_dev = true
 route = ""
 zone_id = ""
+
+kv_namespaces = [
+    { binding = "PINS", preview_id = "f246bccdb3a84e72ab3d80a72f897ef3", id = "430a48a4a2ae4c67a6025551f0978787" }
+]
