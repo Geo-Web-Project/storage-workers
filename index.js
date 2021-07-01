@@ -5,9 +5,15 @@ const ceramicApiEndpoint = 'https://gateway.ceramic.network'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,HEAD,POST,OPTIONS',
+    'Access-Control-Allow-Methods': 'POST',
     'Access-Control-Max-Age': '86400',
 }
+
+router.options('/pinset/:did/request', async request => {
+    return new Response(null, {
+        headers: corsHeaders,
+    })
+})
 
 /*
 Trigger a pinset update for a did
