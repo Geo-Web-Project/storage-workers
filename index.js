@@ -3,25 +3,41 @@ import { Router } from 'itty-router'
 const router = Router()
 const ceramicApiEndpoint = 'https://gateway.ceramic.network'
 
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,HEAD,POST,OPTIONS',
+    'Access-Control-Max-Age': '86400',
+}
+
 /*
 Trigger a pinset update for a did
 */
 router.post('/pinset/:did/request', async request => {
     const body = await request.json()
-    if (!body.pinSetRecordID) {
+    if (!body.pinsetRecordID) {
         return new Response(
-            JSON.stringify({ error: "Could not find field 'pinSetRecordID'" }),
-            { status: 400 }
+            JSON.stringify({ error: "Could not find field 'pinsetRecordID'" }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+                status: 400,
+            }
         )
     }
 
     // Fetch latest pinset
     const response = await fetch(
-        `${ceramicApiEndpoint}/api/v0/streams/${body.pinSetRecordID}`
+        `${ceramicApiEndpoint}/api/v0/streams/${body.pinsetRecordID}`
     )
     const stream = await response.json()
     if (!stream || !stream.state || !stream.state.metadata) {
         return new Response(JSON.stringify({ error: 'Malformed response' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
             status: 500,
         })
     }
@@ -30,12 +46,20 @@ router.post('/pinset/:did/request', async request => {
         return new Response(
             JSON.stringify({ error: 'Record not controlled by DID' }),
             {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
                 status: 400,
             }
         )
     }
     if (!stream.state.content || !stream.state.content.root) {
         return new Response(JSON.stringify({ error: 'Bad record found' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
             status: 400,
         })
     }
@@ -47,6 +71,7 @@ router.post('/pinset/:did/request', async request => {
         return new Response(JSON.stringify({ success: true }), {
             headers: {
                 'Content-Type': 'application/json',
+                ...corsHeaders,
             },
             status: 200,
         })
@@ -72,6 +97,10 @@ router.post('/pinset/:did/request', async request => {
         return new Response(
             JSON.stringify({ error: 'Malformed pin response' }),
             {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
                 status: 500,
             }
         )
@@ -83,6 +112,7 @@ router.post('/pinset/:did/request', async request => {
     return new Response(JSON.stringify({ success: true }), {
         headers: {
             'Content-Type': 'application/json',
+            ...corsHeaders,
         },
         status: 201,
     })
