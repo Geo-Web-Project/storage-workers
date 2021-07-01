@@ -41,7 +41,16 @@ router.post('/pinset/:did/request', async request => {
     }
     const rootCID = stream.state.content.root.replace('ipfs://', '')
 
-    // TODO: Check if already pinned
+    // Check if already pinned
+    const existingPin = await PINS.get(rootCID)
+    if (existingPin) {
+        return new Response(JSON.stringify({ success: true }), {
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            status: 200,
+        })
+    }
 
     // Pin rootCID to Estuary
     const pinResponse = await fetch(
@@ -68,13 +77,14 @@ router.post('/pinset/:did/request', async request => {
         )
     }
 
-    // TODO: Cache CID
+    // Cache CID
+    await PINS.put(rootCID, result.content.id)
 
     return new Response(JSON.stringify({ success: true }), {
         headers: {
             'Content-Type': 'application/json',
         },
-        status: 202,
+        status: 201,
     })
 })
 
