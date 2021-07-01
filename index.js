@@ -60,7 +60,10 @@ router.post('/pinset/:did/request', async request => {
             }
         )
     }
-    if (!stream.state.content || !stream.state.content.root) {
+    if (
+        (!stream.state.content || !stream.state.content.root) &&
+        (!stream.state.next || !stream.state.next.content.root)
+    ) {
         return new Response(JSON.stringify({ error: 'Bad record found' }), {
             headers: {
                 'Content-Type': 'application/json',
@@ -69,7 +72,10 @@ router.post('/pinset/:did/request', async request => {
             status: 400,
         })
     }
-    const rootCID = stream.state.content.root.replace('ipfs://', '')
+    const content = stream.state.next
+        ? stream.state.next.content
+        : stream.state.content
+    const rootCID = content.root.replace('ipfs://', '')
 
     // Check if already pinned
     const existingPin = await PINS.get(rootCID)
