@@ -3,6 +3,14 @@ import { Router } from 'itty-router'
 const router = Router()
 const ceramicApiEndpoint = 'https://gateway.ceramic.network'
 
+const PINATA_ENDPOINT = 'https://api.pinata.cloud/psa'
+const ESTUARY_ENDPOINT = 'https://api.estuary.tech/pinning'
+const pinningServiceEndpoint = PINATA_ENDPOINT
+const PINNING_SERVICE_API_KEY = PINATA_ACCESS_TOKEN
+
+const ipfsBootstrapPeer =
+    '/dns4/ipfs-clay-1.ceramic.geoweb.network/tcp/4012/ws/p2p/QmbDGaByZoomn3NQQjZzwaPWH6ei3ptzWK7a7ECtS35DKL'
+
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST',
@@ -12,6 +20,104 @@ const corsHeaders = {
 router.options('/pinset/:did/request', async request => {
     return new Response(null, {
         headers: corsHeaders,
+    })
+})
+
+router.options('/pinset/:did/request/:pinsetRecordID', async request => {
+    return new Response(null, {
+        headers: corsHeaders,
+    })
+})
+
+/*
+Get the status of a request
+*/
+router.get('/pinset/:did/request/:pinsetRecordID', async request => {
+    // Fetch latest pinset
+    const response = await fetch(
+        `${ceramicApiEndpoint}/api/v0/streams/${request.params.pinsetRecordID}`
+    )
+    const stream = await response.json()
+    if (!stream || !stream.state || !stream.state.metadata) {
+        return new Response(JSON.stringify({ error: 'Malformed response' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 500,
+        })
+    }
+
+    if (!stream.state.metadata.controllers.includes(request.params.did)) {
+        return new Response(
+            JSON.stringify({ error: 'Record not controlled by DID' }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+                status: 400,
+            }
+        )
+    }
+    if (
+        (!stream.state.content || !stream.state.content.root) &&
+        (!stream.state.next || !stream.state.next.content.root)
+    ) {
+        return new Response(JSON.stringify({ error: 'Bad record found' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 400,
+        })
+    }
+    const content = stream.state.next
+        ? stream.state.next.content
+        : stream.state.content
+    const rootCID = content.root.replace('ipfs://', '')
+
+    // Check if already pinned
+    const existingPin = await PINS.get(rootCID)
+    if (!existingPin) {
+        return new Response(JSON.stringify({ status: 'Not Found' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 404,
+        })
+    }
+
+    const pinResponse = await fetch(
+        `${pinningServiceEndpoint}/pins/${existingPin}`,
+        {
+            method: 'GET',
+            headers: {
+                Authorization: `Bearer ${PINNING_SERVICE_API_KEY}`,
+            },
+        }
+    )
+    const result = await pinResponse.json()
+    if (!result.status) {
+        return new Response(
+            JSON.stringify({ error: 'Malformed pin response' }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+                status: 500,
+            }
+        )
+    }
+
+    return new Response(JSON.stringify({ status: result.status }), {
+        headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+        },
+        status: 200,
     })
 })
 
@@ -80,7 +186,30 @@ router.post('/pinset/:did/request', async request => {
     // Check if already pinned
     const existingPin = await PINS.get(rootCID)
     if (existingPin) {
-        return new Response(JSON.stringify({ success: true }), {
+        const pinResponse = await fetch(
+            `${pinningServiceEndpoint}/pins/${existingPin}`,
+            {
+                method: 'GET',
+                headers: {
+                    Authorization: `Bearer ${PINNING_SERVICE_API_KEY}`,
+                },
+            }
+        )
+        const result = await pinResponse.json()
+        if (!result.status) {
+            return new Response(
+                JSON.stringify({ error: 'Malformed pin response' }),
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders,
+                    },
+                    status: 500,
+                }
+            )
+        }
+
+        return new Response(JSON.stringify({ status: result.status }), {
             headers: {
                 'Content-Type': 'application/json',
                 ...corsHeaders,
@@ -89,23 +218,21 @@ router.post('/pinset/:did/request', async request => {
         })
     }
 
-    // Pin rootCID to Estuary
-    const pinResponse = await fetch(
-        'https://api.estuary.tech/content/add-ipfs',
-        {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${ESTUARY_API_KEY}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                name: rootCID,
-                root: rootCID,
-            }),
-        }
-    )
+    // Pin rootCID to pinning service
+    const pinResponse = await fetch(`${pinningServiceEndpoint}/pins`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${PINNING_SERVICE_API_KEY}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            name: rootCID,
+            cid: rootCID,
+            origins: [ipfsBootstrapPeer],
+        }),
+    })
     const result = await pinResponse.json()
-    if (!result.content || !result.content.active) {
+    if (!result.status) {
         return new Response(
             JSON.stringify({ error: 'Malformed pin response' }),
             {
@@ -119,9 +246,9 @@ router.post('/pinset/:did/request', async request => {
     }
 
     // Cache CID
-    await PINS.put(rootCID, result.content.id)
+    await PINS.put(rootCID, result.requestid)
 
-    return new Response(JSON.stringify({ success: true }), {
+    return new Response(JSON.stringify({ status: result.status }), {
         headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
