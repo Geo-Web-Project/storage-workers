@@ -233,7 +233,7 @@ router.post('/pinset/:did/request', async request => {
     const result = await pinResponse.json()
     if (!result.status) {
         return new Response(
-            JSON.stringify({ error: 'Malformed pin response' }),
+            JSON.stringify({ error: `Malformed pin response: ${result}` }),
             {
                 headers: {
                     'Content-Type': 'application/json',
