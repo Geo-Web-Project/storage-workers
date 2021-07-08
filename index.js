@@ -6,7 +6,6 @@ const ceramicApiEndpoint = 'https://gateway.ceramic.network'
 const PINATA_ENDPOINT = 'https://api.pinata.cloud/psa'
 const ESTUARY_ENDPOINT = 'https://api.estuary.tech/pinning'
 const pinningServiceEndpoint = PINATA_ENDPOINT
-const PINNING_SERVICE_API_KEY = PINATA_ACCESS_TOKEN
 
 const ipfsBootstrapPeer =
     '/dns4/ipfs-clay-1.ceramic.geoweb.network/tcp/4012/ws/p2p/QmbDGaByZoomn3NQQjZzwaPWH6ei3ptzWK7a7ECtS35DKL'
@@ -94,7 +93,7 @@ router.get('/pinset/:did/request/:pinsetRecordID', async request => {
         {
             method: 'GET',
             headers: {
-                Authorization: `Bearer ${PINNING_SERVICE_API_KEY}`,
+                Authorization: `Bearer ${PINATA_ACCESS_TOKEN}`,
             },
         }
     )
@@ -191,7 +190,7 @@ router.post('/pinset/:did/request', async request => {
             {
                 method: 'GET',
                 headers: {
-                    Authorization: `Bearer ${PINNING_SERVICE_API_KEY}`,
+                    Authorization: `Bearer ${PINATA_ACCESS_TOKEN}`,
                 },
             }
         )
@@ -222,7 +221,7 @@ router.post('/pinset/:did/request', async request => {
     const pinResponse = await fetch(`${pinningServiceEndpoint}/pins`, {
         method: 'POST',
         headers: {
-            Authorization: `Bearer ${PINNING_SERVICE_API_KEY}`,
+            Authorization: `Bearer ${PINATA_ACCESS_TOKEN}`,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
