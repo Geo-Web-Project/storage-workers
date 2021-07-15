@@ -33,6 +33,30 @@ router.options('/pinset/:did/request/:pinsetRecordID', async request => {
 })
 
 /*
+Get the latest pinset
+*/
+router.get('/pinset/:did/latest', async request => {
+    const latestCommitId = await PINS.get(request.params.did)
+    if (!latestCommitId) {
+        return new Response(JSON.stringify({ status: 'Not Found' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 404,
+        })
+    }
+
+    return new Response(JSON.stringify({ latestCommitId: latestCommitId }), {
+        headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+        },
+        status: 200,
+    })
+})
+
+/*
 Get the status of a request
 */
 router.get('/pinset/:did/request/:pinsetRecordID', async request => {
@@ -250,6 +274,7 @@ router.post('/pinset/:did/request', async request => {
 
     // Cache CID
     await PINS.put(rootCID, result.requestid)
+    await PINS.put(request.params.did, body.pinsetRecordID)
 
     return new Response(JSON.stringify({ status: result.status }), {
         headers: {
