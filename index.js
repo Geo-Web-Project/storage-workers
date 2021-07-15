@@ -7,8 +7,12 @@ const PINATA_ENDPOINT = 'https://api.pinata.cloud/psa'
 const ESTUARY_ENDPOINT = 'https://api.estuary.tech/pinning'
 const pinningServiceEndpoint = PINATA_ENDPOINT
 
-const ipfsBootstrapPeer =
-    '/dns4/ipfs-clay-1.ceramic.geoweb.network/tcp/4012/ws/p2p/QmbDGaByZoomn3NQQjZzwaPWH6ei3ptzWK7a7ECtS35DKL'
+const ipfsPreloadNodes = [
+    '/dns4/node0.preload.ipfs.io/tcp/443/wss/p2p/QmZMxNdpMkewiVZLMRxaNxUeZpDUb34pWjZ1kZvsd16Zic',
+    '/dns4/node1.preload.ipfs.io/tcp/443/wss/p2p/Qmbut9Ywz9YEDrz8ySBSgWyJk41Uvm2QJPhwDJzJyGFsD6',
+    '/dns4/node2.preload.ipfs.io/tcp/443/wss/p2p/QmV7gnbW5VTcJ3oyM2Xk1rdFBJ3kTkvxc87UFGsun29STS',
+    '/dns4/node3.preload.ipfs.io/tcp/443/wss/p2p/QmY7JB6MQXhxHvq7dBDh4HpbH29v4yE9JRadAVpndvzySN',
+]
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -227,7 +231,7 @@ router.post('/pinset/:did/request', async request => {
         body: JSON.stringify({
             name: rootCID,
             cid: rootCID,
-            origins: [ipfsBootstrapPeer],
+            origins: ipfsPreloadNodes,
         }),
     })
     const result = await pinResponse.json()
