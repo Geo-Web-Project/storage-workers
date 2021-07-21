@@ -241,6 +241,10 @@ router.post('/pinset/:did/request', async request => {
             )
         }
 
+        if (result.status == 'pinned') {
+            await PINS.put(request.params.did, body.pinsetRecordID)
+        }
+
         return new Response(JSON.stringify({ status: result.status }), {
             headers: {
                 'Content-Type': 'application/json',
