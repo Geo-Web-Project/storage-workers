@@ -139,6 +139,11 @@ router.get('/pinset/:did/request/:pinsetRecordID', async request => {
         )
     }
 
+    // Cache CID on pinned
+    if (result.status == 'pinned') {
+        await PINS.put(request.params.did, request.params.pinsetRecordID)
+    }
+
     return new Response(JSON.stringify({ status: result.status }), {
         headers: {
             'Content-Type': 'application/json',
@@ -274,7 +279,9 @@ router.post('/pinset/:did/request', async request => {
 
     // Cache CID
     await PINS.put(rootCID, result.requestid)
-    await PINS.put(request.params.did, body.pinsetRecordID)
+    if (result.status == 'pinned') {
+        await PINS.put(request.params.did, body.pinsetRecordID)
+    }
 
     return new Response(JSON.stringify({ status: result.status }), {
         headers: {
