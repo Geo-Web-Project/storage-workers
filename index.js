@@ -5,7 +5,7 @@ const ceramicApiEndpoint = 'https://gateway.ceramic.network'
 
 const PINATA_ENDPOINT = 'https://api.pinata.cloud/psa'
 const ESTUARY_ENDPOINT = 'https://api.estuary.tech/pinning'
-const pinningServiceEndpoint = PINATA_ENDPOINT
+const pinningServiceEndpoint = ESTUARY_ENDPOINT
 
 const ipfsPreloadNodes = [
     '/dns4/node0.preload.ipfs.io/tcp/443/wss/p2p/QmZMxNdpMkewiVZLMRxaNxUeZpDUb34pWjZ1kZvsd16Zic',
@@ -121,7 +121,7 @@ router.get('/pinset/:did/request/:pinsetRecordID', async request => {
         {
             method: 'GET',
             headers: {
-                Authorization: `Bearer ${PINATA_ACCESS_TOKEN}`,
+                Authorization: `Bearer ${ESTUARY_API_KEY}`,
             },
         }
     )
@@ -223,14 +223,16 @@ router.post('/pinset/:did/request', async request => {
             {
                 method: 'GET',
                 headers: {
-                    Authorization: `Bearer ${PINATA_ACCESS_TOKEN}`,
+                    Authorization: `Bearer ${ESTUARY_API_KEY}`,
                 },
             }
         )
         const result = await pinResponse.json()
         if (!result.status) {
             return new Response(
-                JSON.stringify({ error: `Malformed pin response: ${result}` }),
+                JSON.stringify({
+                    error: `Malformed pin response: ${JSON.stringify(result)}`,
+                }),
                 {
                     headers: {
                         'Content-Type': 'application/json',
@@ -258,7 +260,7 @@ router.post('/pinset/:did/request', async request => {
     const pinResponse = await fetch(`${pinningServiceEndpoint}/pins`, {
         method: 'POST',
         headers: {
-            Authorization: `Bearer ${PINATA_ACCESS_TOKEN}`,
+            Authorization: `Bearer ${ESTUARY_API_KEY}`,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -270,7 +272,9 @@ router.post('/pinset/:did/request', async request => {
     const result = await pinResponse.json()
     if (!result.status) {
         return new Response(
-            JSON.stringify({ error: `Malformed pin response: ${result}` }),
+            JSON.stringify({
+                error: `Malformed pin response: ${JSON.stringify(result)}`,
+            }),
             {
                 headers: {
                     'Content-Type': 'application/json',
