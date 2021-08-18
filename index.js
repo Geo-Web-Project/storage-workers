@@ -16,7 +16,8 @@ const ipfsPreloadNodes = [
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST',
+    'Access-Control-Allow-Methods': 'POST,GET',
+    'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
 }
 
