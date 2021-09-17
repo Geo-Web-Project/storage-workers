@@ -1,7 +1,7 @@
 import { Router } from 'itty-router'
 
 const router = Router()
-const ceramicApiEndpoint = 'https://gateway.ceramic.network'
+const ceramicApiEndpoint = 'https://gateway-clay.ceramic.network'
 
 const PINATA_ENDPOINT = 'https://api.pinata.cloud/psa'
 const ESTUARY_ENDPOINT = 'https://api.estuary.tech/pinning'
