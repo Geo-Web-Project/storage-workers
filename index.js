@@ -9,7 +9,7 @@ const PINATA_ENDPOINT = 'https://api.pinata.cloud/psa'
 const ESTUARY_ENDPOINT = 'https://api.estuary.tech/pinning'
 const AUTHORIZED_ASSET_TYPE = new AssetType({
     chainId: 'eip155:4',
-    address: 'erc721:0xd7403e9a7e80ec3cb87182c8c664a609df21041a',
+    assetName: 'erc721:0xd7403e9a7e80ec3cb87182c8c664a609df21041a',
 })
 const pinningServiceEndpoint = ESTUARY_ENDPOINT
 
