@@ -1,10 +1,16 @@
 import { Router } from 'itty-router'
+import { didToCaip } from 'nft-did-resolver'
+import { AssetType } from 'caip'
 
 const router = Router()
 const ceramicApiEndpoint = 'https://gateway-clay.ceramic.network'
 
 const PINATA_ENDPOINT = 'https://api.pinata.cloud/psa'
 const ESTUARY_ENDPOINT = 'https://api.estuary.tech/pinning'
+const AUTHORIZED_ASSET_TYPE = new AssetType({
+    chainId: 'eip155:4',
+    address: 'erc721:0xd7403e9a7e80ec3cb87182c8c664a609df21041a',
+})
 const pinningServiceEndpoint = ESTUARY_ENDPOINT
 
 const ipfsPreloadNodes = [
@@ -34,10 +40,21 @@ router.options('/pinset/:did/request/:pinsetRecordID', async request => {
     })
 })
 
+const authorizeDid = request => {
+    const parsedDid = didToCaip(request.params.did)
+    if (
+        parsedDid.chainId.toString() != AUTHORIZED_ASSET_TYPE.chainId ||
+        parsedDid.assetName.toString() !=
+            AUTHORIZED_ASSET_TYPE.assetName.toString()
+    ) {
+        return new Response('Not Authorized', { status: 403 })
+    }
+}
+
 /*
 Get the latest pinset
 */
-router.get('/pinset/:did/latest', async request => {
+router.get('/pinset/:did/latest', authorizeDid, async request => {
     const latestCommitId = await PINS.get(request.params.did)
     if (!latestCommitId) {
         return new Response(JSON.stringify({ status: 'Not Found' }), {
@@ -61,104 +78,111 @@ router.get('/pinset/:did/latest', async request => {
 /*
 Get the status of a request
 */
-router.get('/pinset/:did/request/:pinsetRecordID', async request => {
-    // Fetch latest pinset
-    const response = await fetch(
-        `${ceramicApiEndpoint}/api/v0/streams/${request.params.pinsetRecordID}`
-    )
-    const stream = await response.json()
-    if (!stream || !stream.state || !stream.state.metadata) {
-        return new Response(JSON.stringify({ error: 'Malformed response' }), {
-            headers: {
-                'Content-Type': 'application/json',
-                ...corsHeaders,
-            },
-            status: 500,
-        })
-    }
+router.get(
+    '/pinset/:did/request/:pinsetRecordID',
+    authorizeDid,
+    async request => {
+        // Fetch latest pinset
+        const response = await fetch(
+            `${ceramicApiEndpoint}/api/v0/streams/${request.params.pinsetRecordID}`
+        )
+        const stream = await response.json()
+        if (!stream || !stream.state || !stream.state.metadata) {
+            return new Response(
+                JSON.stringify({ error: 'Malformed response' }),
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders,
+                    },
+                    status: 500,
+                }
+            )
+        }
 
-    if (!stream.state.metadata.controllers.includes(request.params.did)) {
-        return new Response(
-            JSON.stringify({ error: 'Record not controlled by DID' }),
-            {
+        if (!stream.state.metadata.controllers.includes(request.params.did)) {
+            return new Response(
+                JSON.stringify({ error: 'Record not controlled by DID' }),
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders,
+                    },
+                    status: 400,
+                }
+            )
+        }
+        if (
+            (!stream.state.content || !stream.state.content.root) &&
+            (!stream.state.next || !stream.state.next.content.root)
+        ) {
+            return new Response(JSON.stringify({ error: 'Bad record found' }), {
                 headers: {
                     'Content-Type': 'application/json',
                     ...corsHeaders,
                 },
                 status: 400,
-            }
-        )
-    }
-    if (
-        (!stream.state.content || !stream.state.content.root) &&
-        (!stream.state.next || !stream.state.next.content.root)
-    ) {
-        return new Response(JSON.stringify({ error: 'Bad record found' }), {
-            headers: {
-                'Content-Type': 'application/json',
-                ...corsHeaders,
-            },
-            status: 400,
-        })
-    }
-    const content = stream.state.next
-        ? stream.state.next.content
-        : stream.state.content
-    const rootCID = content.root.replace('ipfs://', '')
-
-    // Check if already pinned
-    const existingPin = await PINS.get(rootCID)
-    if (!existingPin) {
-        return new Response(JSON.stringify({ status: 'Not Found' }), {
-            headers: {
-                'Content-Type': 'application/json',
-                ...corsHeaders,
-            },
-            status: 404,
-        })
-    }
-
-    const pinResponse = await fetch(
-        `${pinningServiceEndpoint}/pins/${existingPin}`,
-        {
-            method: 'GET',
-            headers: {
-                Authorization: `Bearer ${ESTUARY_API_KEY}`,
-            },
+            })
         }
-    )
-    const result = await pinResponse.json()
-    if (!result.status) {
-        return new Response(
-            JSON.stringify({ error: 'Malformed pin response' }),
-            {
+        const content = stream.state.next
+            ? stream.state.next.content
+            : stream.state.content
+        const rootCID = content.root.replace('ipfs://', '')
+
+        // Check if already pinned
+        const existingPin = await PINS.get(rootCID)
+        if (!existingPin) {
+            return new Response(JSON.stringify({ status: 'Not Found' }), {
                 headers: {
                     'Content-Type': 'application/json',
                     ...corsHeaders,
                 },
-                status: 500,
+                status: 404,
+            })
+        }
+
+        const pinResponse = await fetch(
+            `${pinningServiceEndpoint}/pins/${existingPin}`,
+            {
+                method: 'GET',
+                headers: {
+                    Authorization: `Bearer ${ESTUARY_API_KEY}`,
+                },
             }
         )
-    }
+        const result = await pinResponse.json()
+        if (!result.status) {
+            return new Response(
+                JSON.stringify({ error: 'Malformed pin response' }),
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders,
+                    },
+                    status: 500,
+                }
+            )
+        }
 
-    // Cache CID on pinned
-    if (result.status == 'pinned') {
-        await PINS.put(request.params.did, request.params.pinsetRecordID)
-    }
+        // Cache CID on pinned
+        if (result.status == 'pinned') {
+            await PINS.put(request.params.did, request.params.pinsetRecordID)
+        }
 
-    return new Response(JSON.stringify({ status: result.status }), {
-        headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-        },
-        status: 200,
-    })
-})
+        return new Response(JSON.stringify({ status: result.status }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 200,
+        })
+    }
+)
 
 /*
 Trigger a pinset update for a did
 */
-router.post('/pinset/:did/request', async request => {
+router.post('/pinset/:did/request', authorizeDid, async request => {
     const body = await request.json()
     if (!body.pinsetRecordID) {
         return new Response(
