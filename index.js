@@ -8,6 +8,7 @@ const ESTUARY_ENDPOINT = 'https://api.estuary.tech/pinning'
 const pinningServiceEndpoint = ESTUARY_ENDPOINT
 
 const ipfsPreloadNodes = [
+    '/dns4/preload.ipfs.geoweb.network/tcp/4002/wss/p2p/12D3KooWKcc7Jz6jxCJeq8LRi6chufG16hbezYnT2DUhSZRy3whU',
     '/dns4/node0.preload.ipfs.io/tcp/443/wss/p2p/QmZMxNdpMkewiVZLMRxaNxUeZpDUb34pWjZ1kZvsd16Zic',
     '/dns4/node1.preload.ipfs.io/tcp/443/wss/p2p/Qmbut9Ywz9YEDrz8ySBSgWyJk41Uvm2QJPhwDJzJyGFsD6',
     '/dns4/node2.preload.ipfs.io/tcp/443/wss/p2p/QmV7gnbW5VTcJ3oyM2Xk1rdFBJ3kTkvxc87UFGsun29STS',
