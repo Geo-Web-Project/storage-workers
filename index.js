@@ -37,7 +37,11 @@ router.options('/pinset/:did/request/:pinsetRecordID', async request => {
 Get the latest pinset
 */
 router.get('/pinset/:did/latest', async request => {
-    const latestCommitId = await PINS.get(request.params.did)
+    const assetId = request.query.assetId
+    const key = assetId
+        ? `${request.params.did}_${assetId}`
+        : request.params.did
+    const latestCommitId = await PINS.get(key)
     if (!latestCommitId) {
         return new Response(JSON.stringify({ status: 'Not Found' }), {
             headers: {
@@ -61,6 +65,11 @@ router.get('/pinset/:did/latest', async request => {
 Get the status of a request
 */
 router.get('/pinset/:did/request/:pinsetRecordID', async request => {
+    const assetId = request.query.assetId
+    const key = assetId
+        ? `${request.params.did}_${assetId}`
+        : request.params.did
+
     // Fetch latest pinset
     const response = await fetch(
         `${ceramicApiEndpoint}/api/v0/streams/${request.params.pinsetRecordID}`
@@ -142,7 +151,7 @@ router.get('/pinset/:did/request/:pinsetRecordID', async request => {
 
     // Cache CID on pinned
     if (result.status == 'pinned') {
-        await PINS.put(request.params.did, request.params.pinsetRecordID)
+        await PINS.put(key, request.params.pinsetRecordID)
     }
 
     return new Response(JSON.stringify({ status: result.status }), {
@@ -158,6 +167,11 @@ router.get('/pinset/:did/request/:pinsetRecordID', async request => {
 Trigger a pinset update for a did
 */
 router.post('/pinset/:did/request', async request => {
+    const assetId = request.query.assetId
+    const key = assetId
+        ? `${request.params.did}_${assetId}`
+        : request.params.did
+
     const body = await request.json()
     if (!body.pinsetRecordID) {
         return new Response(
@@ -245,7 +259,7 @@ router.post('/pinset/:did/request', async request => {
         }
 
         if (result.status == 'pinned') {
-            await PINS.put(request.params.did, body.pinsetRecordID)
+            await PINS.put(key, body.pinsetRecordID)
         }
 
         return new Response(JSON.stringify({ status: result.status }), {
@@ -289,7 +303,7 @@ router.post('/pinset/:did/request', async request => {
     // Cache CID
     await PINS.put(rootCID, result.requestid)
     if (result.status == 'pinned') {
-        await PINS.put(request.params.did, body.pinsetRecordID)
+        await PINS.put(key, body.pinsetRecordID)
     }
 
     return new Response(JSON.stringify({ status: result.status }), {
