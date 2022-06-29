@@ -1,12 +1,13 @@
 import { Router } from 'itty-router'
-import { randomString } from '@stablelib/random'
+import { generateNonce, SiweMessage } from 'siwe'
 
 const router = Router()
 const ceramicApiEndpoint = 'https://gateway.ceramic.network'
 
 const PINATA_ENDPOINT = 'https://api.pinata.cloud/psa'
-const ESTUARY_ENDPOINT = 'https://api.estuary.tech/pinning'
-const pinningServiceEndpoint = ESTUARY_ENDPOINT
+const ESTUARY_ENDPOINT = 'https://api.estuary.tech'
+const ESTUARY_PINNING_ENDPOINT = 'https://api.estuary.tech/pinning'
+const pinningServiceEndpoint = ESTUARY_PINNING_ENDPOINT
 
 const ipfsPreloadNodes = [
     '/dns4/node0.preload.ipfs.io/tcp/443/wss/p2p/QmZMxNdpMkewiVZLMRxaNxUeZpDUb34pWjZ1kZvsd16Zic',
@@ -30,7 +31,7 @@ const corsHeaders = {
     Generate a nonce
 */
 router.get('/estuary/nonce', async request => {
-    const nonce = randomString(10)
+    const nonce = generateNonce()
     await ESTUARY_NONCES.put(nonce, 'true', { expirationTtl: 60 * 60 })
     return new Response(JSON.stringify({ nonce: nonce }), {
         headers: {
@@ -45,7 +46,83 @@ router.get('/estuary/nonce', async request => {
     Get an Estuary token by sending a SIWE signature + nonce
     TODO: Check if user owns a parcel
 */
-router.get('/estuary/token', async request => {})
+router.get('/estuary/token', async request => {
+    if (!request.body.message) {
+        return new Response(
+            JSON.stringify({
+                message: 'Expected prepareMessage object as body',
+            }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+                status: 422,
+            }
+        )
+    }
+
+    if (!request.body.signature) {
+        return new Response(
+            JSON.stringify({ message: 'Expected signature in body' }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+                status: 422,
+            }
+        )
+    }
+
+    let message = new SiweMessage(request.body.message)
+    const fields = await message.validate(request.body.signature)
+
+    if (!fields.nonce) {
+        return new Response(JSON.stringify({ message: 'Nonce not found' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 422,
+        })
+    }
+
+    const nonceCheck = await ESTUARY_NONCES.get(fields.nonce)
+    if (!nonceCheck) {
+        return new Response(JSON.stringify({ message: 'Nonce not valid' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 422,
+        })
+    }
+
+    // Delete nonce
+    await ESTUARY_NONCES.delete(fields.nonce)
+
+    // Fetch token
+    const tokenResponse = await fetch(
+        `${ESTUARY_ENDPOINT}/user/api-keys?perms=upload&expiry=24h`,
+        {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${ESTUARY_API_KEY}`,
+                'Content-Type': 'application/json',
+            },
+        }
+    )
+    const result = await tokenResponse.json()
+
+    return new Response(JSON.stringify({ token: result.token }), {
+        headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+        },
+        status: 200,
+    })
+})
 
 /*
     Get the latest collection CIDs for an asset
