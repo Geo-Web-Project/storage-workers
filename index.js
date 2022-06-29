@@ -1,4 +1,5 @@
 import { Router } from 'itty-router'
+import { randomString } from '@stablelib/random'
 
 const router = Router()
 const ceramicApiEndpoint = 'https://gateway.ceramic.network'
@@ -20,6 +21,45 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
 }
+
+/* 
+    Estuary Collection APIs
+*/
+
+/*
+    Generate a nonce
+*/
+router.get('/estuary/nonce', async request => {
+    const nonce = randomString(10)
+    await ESTUARY_NONCES.put(nonce, 'true', { expirationTtl: 60 * 60 })
+    return new Response(JSON.stringify({ nonce: nonce }), {
+        headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+        },
+        status: 200,
+    })
+})
+
+/*
+    Get an Estuary token by sending a SIWE signature + nonce
+    TODO: Check if user owns a parcel
+*/
+router.get('/estuary/token', async request => {})
+
+/*
+    Get the latest collection CIDs for an asset
+*/
+router.get('/dids/:did/assets/:assetId/collection', async request => {})
+
+/*
+    Trigger an update to an asset's collection
+*/
+router.post('/dids/:did/assets/:assetId/collection', async request => {})
+
+/*
+    Deprecated Pinset APIs
+*/
 
 router.options('/pinset/:did/request', async request => {
     return new Response(null, {
