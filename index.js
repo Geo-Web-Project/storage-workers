@@ -46,7 +46,7 @@ router.get('/estuary/nonce', async request => {
     Get an Estuary token by sending a SIWE signature + nonce
     TODO: Check if user owns a parcel
 */
-router.get('/estuary/token', async request => {
+router.post('/estuary/token', async request => {
     if (!request.body.message) {
         return new Response(
             JSON.stringify({
