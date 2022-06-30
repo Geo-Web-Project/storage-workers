@@ -27,6 +27,18 @@ const corsHeaders = {
     Estuary Collection APIs
 */
 
+router.options('/estuary/nonce', async request => {
+    return new Response(null, {
+        headers: corsHeaders,
+    })
+})
+
+router.options('/estuary/token', async request => {
+    return new Response(null, {
+        headers: corsHeaders,
+    })
+})
+
 /*
     Generate a nonce
 */
@@ -47,7 +59,8 @@ router.get('/estuary/nonce', async request => {
     TODO: Check if user owns a parcel
 */
 router.post('/estuary/token', async request => {
-    if (!request.body.message) {
+    console.log(request.query)
+    if (!request.query.message) {
         return new Response(
             JSON.stringify({
                 message: 'Expected prepareMessage object as body',
@@ -62,7 +75,7 @@ router.post('/estuary/token', async request => {
         )
     }
 
-    if (!request.body.signature) {
+    if (!request.query.signature) {
         return new Response(
             JSON.stringify({ message: 'Expected signature in body' }),
             {
@@ -75,8 +88,8 @@ router.post('/estuary/token', async request => {
         )
     }
 
-    let message = new SiweMessage(request.body.message)
-    const fields = await message.validate(request.body.signature)
+    let message = new SiweMessage(request.query.message)
+    const fields = await message.validate(request.query.signature)
 
     if (!fields.nonce) {
         return new Response(JSON.stringify({ message: 'Nonce not found' }), {
