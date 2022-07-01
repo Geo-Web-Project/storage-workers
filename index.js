@@ -1,5 +1,6 @@
 import { Router } from 'itty-router'
-import { generateNonce, SiweMessage } from 'siwe'
+import { verifyMessage } from '@ethersproject/wallet'
+import { randomString } from '@stablelib/random'
 
 const router = Router()
 const ceramicApiEndpoint = 'https://gateway.ceramic.network'
@@ -43,7 +44,7 @@ router.options('/estuary/token', async request => {
     Generate a nonce
 */
 router.get('/estuary/nonce', async request => {
-    const nonce = generateNonce()
+    const nonce = randomString(10)
     await ESTUARY_NONCES.put(nonce, 'true', { expirationTtl: 60 * 60 })
     return new Response(JSON.stringify({ nonce: nonce }), {
         headers: {
@@ -59,11 +60,11 @@ router.get('/estuary/nonce', async request => {
     TODO: Check if user owns a parcel
 */
 router.post('/estuary/token', async request => {
-    console.log(request.query)
-    if (!request.query.message) {
+    const body = await request.json()
+    if (!body.siwe) {
         return new Response(
             JSON.stringify({
-                message: 'Expected prepareMessage object as body',
+                message: 'Expected SIWE object as body',
             }),
             {
                 headers: {
@@ -75,23 +76,26 @@ router.post('/estuary/token', async request => {
         )
     }
 
-    if (!request.query.signature) {
+    const recoveredAddress = verifyMessage(
+        toMessage(body.siwe),
+        body.siwe.signature
+    )
+    if (recoveredAddress.toLowerCase() !== body.siwe.address.toLowerCase()) {
         return new Response(
-            JSON.stringify({ message: 'Expected signature in body' }),
+            JSON.stringify({
+                message: 'Signature does not belong to issuer',
+            }),
             {
                 headers: {
                     'Content-Type': 'application/json',
                     ...corsHeaders,
                 },
-                status: 422,
+                status: 401,
             }
         )
     }
 
-    let message = new SiweMessage(request.query.message)
-    const fields = await message.validate(request.query.signature)
-
-    if (!fields.nonce) {
+    if (!body.siwe.nonce) {
         return new Response(JSON.stringify({ message: 'Nonce not found' }), {
             headers: {
                 'Content-Type': 'application/json',
@@ -101,7 +105,7 @@ router.post('/estuary/token', async request => {
         })
     }
 
-    const nonceCheck = await ESTUARY_NONCES.get(fields.nonce)
+    const nonceCheck = await ESTUARY_NONCES.get(body.siwe.nonce)
     if (!nonceCheck) {
         return new Response(JSON.stringify({ message: 'Nonce not valid' }), {
             headers: {
@@ -113,7 +117,7 @@ router.post('/estuary/token', async request => {
     }
 
     // Delete nonce
-    await ESTUARY_NONCES.delete(fields.nonce)
+    await ESTUARY_NONCES.delete(body.siwe.nonce)
 
     // Fetch token
     const tokenResponse = await fetch(
@@ -146,6 +150,60 @@ router.get('/dids/:did/assets/:assetId/collection', async request => {})
     Trigger an update to an asset's collection
 */
 router.post('/dids/:did/assets/:assetId/collection', async request => {})
+
+/* Taken from ceramic-cacao */
+function toMessage(siwe) {
+    const header = `${siwe.domain} wants you to sign in with your Ethereum account:`
+    const uriField = `URI: ${siwe.uri}`
+    let prefix = [header, siwe.address].join('\n')
+    const versionField = `Version: ${siwe.version}`
+
+    if (!siwe.nonce) {
+        siwe.nonce = (Math.random() + 1).toString(36).substring(4)
+    }
+
+    const nonceField = `Nonce: ${siwe.nonce}`
+
+    const suffixArray = [uriField, versionField, nonceField]
+
+    if (siwe.issuedAt) {
+        Date.parse(siwe.issuedAt)
+    }
+    siwe.issuedAt = siwe.issuedAt ? siwe.issuedAt : new Date().toISOString()
+    suffixArray.push(`Issued At: ${siwe.issuedAt}`)
+
+    if (siwe.expirationTime) {
+        const expiryField = `Expiration Time: ${siwe.expirationTime}`
+
+        suffixArray.push(expiryField)
+    }
+
+    if (siwe.notBefore) {
+        suffixArray.push(`Not Before: ${siwe.notBefore}`)
+    }
+
+    if (siwe.requestId) {
+        suffixArray.push(`Request ID: ${siwe.requestId}`)
+    }
+
+    if (siwe.chainId) {
+        suffixArray.push(`Chain ID: ${siwe.chainId}`)
+    }
+
+    if (siwe.resources) {
+        suffixArray.push(
+            [`Resources:`, ...siwe.resources.map(x => `- ${x}`)].join('\n')
+        )
+    }
+
+    const suffix = suffixArray.join('\n')
+
+    if (siwe.statement) {
+        prefix = [prefix, siwe.statement].join('\n\n')
+    }
+
+    return [prefix, suffix].join('\n\n')
+}
 
 /*
     Deprecated Pinset APIs
