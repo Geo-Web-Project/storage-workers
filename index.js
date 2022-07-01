@@ -40,6 +40,12 @@ router.options('/estuary/token', async request => {
     })
 })
 
+router.options('/dids/:did/assets/:assetId/collection', async request => {
+    return new Response(null, {
+        headers: corsHeaders,
+    })
+})
+
 /*
     Generate a nonce
 */
@@ -132,7 +138,51 @@ router.post('/estuary/token', async request => {
     )
     const result = await tokenResponse.json()
 
-    return new Response(JSON.stringify({ token: result.token }), {
+    return new Response(
+        JSON.stringify({ token: result.token, expiry: result.expiry }),
+        {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 200,
+        }
+    )
+})
+
+/*
+    Get the latest collection CIDs for an asset
+*/
+router.get('/dids/:did/assets/:assetId/collection', async request => {
+    const assetId = request.params.assetId
+    const did = request.params.did
+    const key = `${did}_${assetId}`
+
+    const collectionId = await ESTUARY_COLLECTIONS.get(key)
+
+    if (!collectionId) {
+        return new Response(JSON.stringify({ status: 'Not Found' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 404,
+        })
+    }
+
+    // Fetch collection
+    const collectionResponse = await fetch(
+        `${ESTUARY_ENDPOINT}/collections/content?coluuid=${collectionId}`,
+        {
+            method: 'GET',
+            headers: {
+                Authorization: `Bearer ${ESTUARY_API_KEY}`,
+            },
+        }
+    )
+    const result = await collectionResponse.json()
+    const items = result ? result.map(v => v.cid) : []
+    return new Response(JSON.stringify({ items: items }), {
         headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
@@ -142,14 +192,160 @@ router.post('/estuary/token', async request => {
 })
 
 /*
-    Get the latest collection CIDs for an asset
-*/
-router.get('/dids/:did/assets/:assetId/collection', async request => {})
-
-/*
     Trigger an update to an asset's collection
 */
-router.post('/dids/:did/assets/:assetId/collection', async request => {})
+router.post('/dids/:did/assets/:assetId/collection', async request => {
+    const body = await request.json()
+    const pinsetRecordId = body.pinsetRecordId
+    if (!pinsetRecordId) {
+        return new Response(
+            JSON.stringify({ error: 'Missing pinsetRecordId query param' }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+                status: 400,
+            }
+        )
+    }
+    const assetId = request.params.assetId
+    const did = request.params.did
+    const key = `${did}_${assetId}`
+
+    // Fetch latest pinset
+    const response = await fetch(
+        `${ceramicApiEndpoint}/api/v0/streams/${pinsetRecordId}`
+    )
+    const stream = await response.json()
+    if (!stream || !stream.state || !stream.state.metadata) {
+        return new Response(JSON.stringify({ error: 'Malformed response' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 500,
+        })
+    }
+
+    if (!stream.state.metadata.controllers.includes(did)) {
+        return new Response(
+            JSON.stringify({ error: 'Record not controlled by DID' }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+                status: 422,
+            }
+        )
+    }
+    if (
+        (!stream.state.content || !stream.state.content.items) &&
+        (!stream.state.next || !stream.state.next.content.items)
+    ) {
+        return new Response(JSON.stringify({ error: 'Bad record found' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 422,
+        })
+    }
+    const content = stream.state.next
+        ? stream.state.next.content
+        : stream.state.content
+
+    const latestPinset = content.items ? content.items : []
+    let collectionId = await ESTUARY_COLLECTIONS.get(key)
+
+    if (latestPinset.length == 0) {
+        return new Response(JSON.stringify({ success: true }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 202,
+        })
+    }
+
+    let cidsToAdd = []
+    if (collectionId) {
+        // Fetch collection and add missing
+        const collectionResponse = await fetch(
+            `${ESTUARY_ENDPOINT}/collections/content?coluuid=${collectionId}`,
+            {
+                method: 'GET',
+                headers: {
+                    Authorization: `Bearer ${ESTUARY_API_KEY}`,
+                },
+            }
+        )
+        const result = await collectionResponse.json()
+        const items = result ? result.map(v => v.cid) : []
+        const diff = difference(new Set(latestPinset), new Set(items))
+        cidsToAdd = [...diff]
+    } else {
+        // Add all in new collection
+        const createResponse = await fetch(
+            `${ESTUARY_ENDPOINT}/collections/create`,
+            {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${ESTUARY_API_KEY}`,
+                },
+                body: JSON.stringify({
+                    name: key,
+                }),
+            }
+        )
+
+        collectionId = await createResponse.json()
+        cidsToAdd = latestPinset
+        await ESTUARY_COLLECTIONS.put(key, collectionId)
+    }
+
+    const collectionResponse = await fetch(
+        `${ESTUARY_ENDPOINT}/collections/add-content`,
+        {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${ESTUARY_API_KEY}`,
+            },
+            body: JSON.stringify({
+                cids: cidsToAdd,
+                coluuid: collectionId,
+            }),
+        }
+    )
+    if (collectionResponse.status !== 200) {
+        return new Response(JSON.stringify(await collectionResponse.json()), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 502,
+        })
+    }
+
+    return new Response(JSON.stringify({ success: true }), {
+        headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+        },
+        status: 202,
+    })
+})
+
+function difference(setA, setB) {
+    const diff = new Set(setA)
+
+    for (const elem of setB) {
+        diff.delete(elem)
+    }
+
+    return diff
+}
 
 /* Taken from ceramic-cacao */
 function toMessage(siwe) {
