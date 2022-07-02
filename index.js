@@ -1,11 +1,14 @@
 import { Router } from 'itty-router'
+import { verifyMessage } from '@ethersproject/wallet'
+import { randomString } from '@stablelib/random'
 
 const router = Router()
 const ceramicApiEndpoint = 'https://gateway.ceramic.network'
 
 const PINATA_ENDPOINT = 'https://api.pinata.cloud/psa'
-const ESTUARY_ENDPOINT = 'https://api.estuary.tech/pinning'
-const pinningServiceEndpoint = ESTUARY_ENDPOINT
+const ESTUARY_ENDPOINT = 'https://api.estuary.tech'
+const ESTUARY_PINNING_ENDPOINT = 'https://api.estuary.tech/pinning'
+const pinningServiceEndpoint = ESTUARY_PINNING_ENDPOINT
 
 const ipfsPreloadNodes = [
     '/dns4/node0.preload.ipfs.io/tcp/443/wss/p2p/QmZMxNdpMkewiVZLMRxaNxUeZpDUb34pWjZ1kZvsd16Zic',
@@ -20,6 +23,387 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
 }
+
+/* 
+    Estuary Collection APIs
+*/
+
+router.options('/estuary/nonce', async request => {
+    return new Response(null, {
+        headers: corsHeaders,
+    })
+})
+
+router.options('/estuary/token', async request => {
+    return new Response(null, {
+        headers: corsHeaders,
+    })
+})
+
+router.options('/dids/:did/assets/:assetId/collection', async request => {
+    return new Response(null, {
+        headers: corsHeaders,
+    })
+})
+
+/*
+    Generate a nonce
+*/
+router.get('/estuary/nonce', async request => {
+    const nonce = randomString(10)
+    await ESTUARY_NONCES.put(nonce, 'true', { expirationTtl: 60 * 60 })
+    return new Response(JSON.stringify({ nonce: nonce }), {
+        headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+        },
+        status: 200,
+    })
+})
+
+/*
+    Get an Estuary token by sending a SIWE signature + nonce
+    TODO: Check if user owns a parcel
+*/
+router.post('/estuary/token', async request => {
+    const body = await request.json()
+    if (!body.siwe) {
+        return new Response(
+            JSON.stringify({
+                message: 'Expected SIWE object as body',
+            }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+                status: 422,
+            }
+        )
+    }
+
+    const recoveredAddress = verifyMessage(
+        toMessage(body.siwe),
+        body.siwe.signature
+    )
+    if (recoveredAddress.toLowerCase() !== body.siwe.address.toLowerCase()) {
+        return new Response(
+            JSON.stringify({
+                message: 'Signature does not belong to issuer',
+            }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+                status: 401,
+            }
+        )
+    }
+
+    if (!body.siwe.nonce) {
+        return new Response(JSON.stringify({ message: 'Nonce not found' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 422,
+        })
+    }
+
+    const nonceCheck = await ESTUARY_NONCES.get(body.siwe.nonce)
+    if (!nonceCheck) {
+        return new Response(JSON.stringify({ message: 'Nonce not valid' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 422,
+        })
+    }
+
+    // Delete nonce
+    await ESTUARY_NONCES.delete(body.siwe.nonce)
+
+    // Fetch token
+    const tokenResponse = await fetch(
+        `${ESTUARY_ENDPOINT}/user/api-keys?perms=upload&expiry=24h`,
+        {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${ESTUARY_API_KEY}`,
+                'Content-Type': 'application/json',
+            },
+        }
+    )
+    const result = await tokenResponse.json()
+
+    return new Response(
+        JSON.stringify({ token: result.token, expiry: result.expiry }),
+        {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 200,
+        }
+    )
+})
+
+/*
+    Get the latest collection CIDs for an asset
+*/
+router.get('/dids/:did/assets/:assetId/collection', async request => {
+    const assetId = request.params.assetId
+    const did = request.params.did
+    const key = `${did}_${assetId}`
+
+    const collectionId = await ESTUARY_COLLECTIONS.get(key)
+
+    if (!collectionId) {
+        return new Response(JSON.stringify({ status: 'Not Found' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 404,
+        })
+    }
+
+    // Fetch collection
+    const collectionResponse = await fetch(
+        `${ESTUARY_ENDPOINT}/collections/content?coluuid=${collectionId}`,
+        {
+            method: 'GET',
+            headers: {
+                Authorization: `Bearer ${ESTUARY_API_KEY}`,
+            },
+        }
+    )
+    const result = await collectionResponse.json()
+    const items = result ? result.map(v => v.cid) : []
+    return new Response(JSON.stringify({ items: items }), {
+        headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+        },
+        status: 200,
+    })
+})
+
+/*
+    Trigger an update to an asset's collection
+*/
+router.post('/dids/:did/assets/:assetId/collection', async request => {
+    const body = await request.json()
+    const pinsetRecordId = body.pinsetRecordId
+    if (!pinsetRecordId) {
+        return new Response(
+            JSON.stringify({ error: 'Missing pinsetRecordId query param' }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+                status: 400,
+            }
+        )
+    }
+    const assetId = request.params.assetId
+    const did = request.params.did
+    const key = `${did}_${assetId}`
+
+    // Fetch latest pinset
+    const response = await fetch(
+        `${ceramicApiEndpoint}/api/v0/streams/${pinsetRecordId}`
+    )
+    const stream = await response.json()
+    if (!stream || !stream.state || !stream.state.metadata) {
+        return new Response(JSON.stringify({ error: 'Malformed response' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 500,
+        })
+    }
+
+    if (!stream.state.metadata.controllers.includes(did)) {
+        return new Response(
+            JSON.stringify({ error: 'Record not controlled by DID' }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+                status: 422,
+            }
+        )
+    }
+    if (
+        (!stream.state.content || !stream.state.content.items) &&
+        (!stream.state.next || !stream.state.next.content.items)
+    ) {
+        return new Response(JSON.stringify({ error: 'Bad record found' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 422,
+        })
+    }
+    const content = stream.state.next
+        ? stream.state.next.content
+        : stream.state.content
+
+    const latestPinset = content.items ? content.items : []
+    let collectionId = await ESTUARY_COLLECTIONS.get(key)
+
+    if (latestPinset.length == 0) {
+        return new Response(JSON.stringify({ success: true }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 202,
+        })
+    }
+
+    let cidsToAdd = []
+    if (collectionId) {
+        // Fetch collection and add missing
+        const collectionResponse = await fetch(
+            `${ESTUARY_ENDPOINT}/collections/content?coluuid=${collectionId}`,
+            {
+                method: 'GET',
+                headers: {
+                    Authorization: `Bearer ${ESTUARY_API_KEY}`,
+                },
+            }
+        )
+        const result = await collectionResponse.json()
+        const items = result ? result.map(v => v.cid) : []
+        const diff = difference(new Set(latestPinset), new Set(items))
+        cidsToAdd = [...diff]
+    } else {
+        // Add all in new collection
+        const createResponse = await fetch(
+            `${ESTUARY_ENDPOINT}/collections/create`,
+            {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${ESTUARY_API_KEY}`,
+                },
+                body: JSON.stringify({
+                    name: key,
+                }),
+            }
+        )
+
+        collectionId = await createResponse.json()
+        cidsToAdd = latestPinset
+        await ESTUARY_COLLECTIONS.put(key, collectionId)
+    }
+
+    const collectionResponse = await fetch(
+        `${ESTUARY_ENDPOINT}/collections/add-content`,
+        {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${ESTUARY_API_KEY}`,
+            },
+            body: JSON.stringify({
+                cids: cidsToAdd,
+                coluuid: collectionId,
+            }),
+        }
+    )
+    if (collectionResponse.status !== 200) {
+        return new Response(JSON.stringify(await collectionResponse.json()), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+            status: 502,
+        })
+    }
+
+    return new Response(JSON.stringify({ success: true }), {
+        headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+        },
+        status: 202,
+    })
+})
+
+function difference(setA, setB) {
+    const diff = new Set(setA)
+
+    for (const elem of setB) {
+        diff.delete(elem)
+    }
+
+    return diff
+}
+
+/* Taken from ceramic-cacao */
+function toMessage(siwe) {
+    const header = `${siwe.domain} wants you to sign in with your Ethereum account:`
+    const uriField = `URI: ${siwe.uri}`
+    let prefix = [header, siwe.address].join('\n')
+    const versionField = `Version: ${siwe.version}`
+
+    if (!siwe.nonce) {
+        siwe.nonce = (Math.random() + 1).toString(36).substring(4)
+    }
+
+    const nonceField = `Nonce: ${siwe.nonce}`
+
+    const suffixArray = [uriField, versionField, nonceField]
+
+    if (siwe.issuedAt) {
+        Date.parse(siwe.issuedAt)
+    }
+    siwe.issuedAt = siwe.issuedAt ? siwe.issuedAt : new Date().toISOString()
+    suffixArray.push(`Issued At: ${siwe.issuedAt}`)
+
+    if (siwe.expirationTime) {
+        const expiryField = `Expiration Time: ${siwe.expirationTime}`
+
+        suffixArray.push(expiryField)
+    }
+
+    if (siwe.notBefore) {
+        suffixArray.push(`Not Before: ${siwe.notBefore}`)
+    }
+
+    if (siwe.requestId) {
+        suffixArray.push(`Request ID: ${siwe.requestId}`)
+    }
+
+    if (siwe.chainId) {
+        suffixArray.push(`Chain ID: ${siwe.chainId}`)
+    }
+
+    if (siwe.resources) {
+        suffixArray.push(
+            [`Resources:`, ...siwe.resources.map(x => `- ${x}`)].join('\n')
+        )
+    }
+
+    const suffix = suffixArray.join('\n')
+
+    if (siwe.statement) {
+        prefix = [prefix, siwe.statement].join('\n\n')
+    }
+
+    return [prefix, suffix].join('\n\n')
+}
+
+/*
+    Deprecated Pinset APIs
+*/
 
 router.options('/pinset/:did/request', async request => {
     return new Response(null, {
